@@ -19,7 +19,7 @@ class DatabaseTestCase extends PHPUnit_Framework_TestCase {
 	}
 
 	public static function tearDownAfterClass() {
-		BasicObject::clear_structure_cache(MC::get_instance());
+		BasicObject::clear_structure_cache();
 		db_close();
 	}
 }

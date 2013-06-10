@@ -158,15 +158,19 @@ abstract class BasicObject {
 		if($stored) BasicObject::$columns = unserialize($stored);
 	}
 
-	public static function clear_structure_cache($memcache) {
-		$memcache->delete("column_ids");
-		$memcache->delete("connection_table");
-		$memcache->delete("tables");
-		$memcache->delete("columns");
+	public static function clear_structure_cache() {
+		if(is_null(BasicObject::$memcache)) {
+			return false;
+		}
+		BasicObject::$memcache->delete("column_ids");
+		BasicObject::$memcache->delete("connection_table");
+		BasicObject::$memcache->delete("tables");
+		BasicObject::$memcache->delete("columns");
 		BasicObject::$column_ids = array();
 		BasicObject::$connection_table = array();
 		BasicObject::$tables = null;
 		BasicObject::$columns = array();
+		return true;
 	}
 
 	private static function store_column_ids() {
