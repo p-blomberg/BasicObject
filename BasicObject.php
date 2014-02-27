@@ -549,7 +549,7 @@ abstract class BasicObject {
 			} else {
 				$query .= "\nWHERE `".$this->id_name()."` = ?";
 				$id = $this->id;
-				$types .= 'i';
+				$types .= 's';
 				$params[] = &$id;
 			}
 			$stmt = $db->prepare($query);
