@@ -40,6 +40,7 @@ abstract class BasicObject {
 	 * Memcache for caching database structure between requests
 	 */
 	private static $memcache = null;
+	private static $memcache_prefix;
 
 	private static $column_ids = array();
 	private static $connection_table = array();
@@ -89,7 +90,7 @@ abstract class BasicObject {
 	 * Returns the table name associated with this class.
 	 * @return The name of the table this class is associated with.
 	 */
-	private static function id_name($class_name = null){
+	protected static function id_name($class_name = null){
 		$pk = static::primary_key($class_name);
 		if(count($pk) < 1) {
 			return null;
@@ -142,30 +143,32 @@ abstract class BasicObject {
 	 * Enables structure cache using the provided Memcache object
 	 * The memcache instance must be connected
 	 */
-	public static function enable_structure_cache($memcache) {
+	public static function enable_structure_cache($memcache, $prefix = "basicobject_") {
 		BasicObject::$memcache = $memcache;
+		BasicObject::$memcache_prefix = $prefix;
 
-		$stored = BasicObject::$memcache->get("column_ids");
+		$stored = BasicObject::$memcache->get(BasicObject::$memcache_prefix . "column_ids");
 		if($stored) BasicObject::$column_ids = unserialize($stored);
 
-		$stored = BasicObject::$memcache->get("connection_table");
+		$stored = BasicObject::$memcache->get(BasicObject::$memcache_prefix . "connection_table");
 		if($stored) BasicObject::$connection_table = unserialize($stored);
 
-		$stored = BasicObject::$memcache->get("tables");
+		$stored = BasicObject::$memcache->get(BasicObject::$memcache_prefix . "tables");
 		if($stored) BasicObject::$tables = unserialize($stored);
 
-		$stored = BasicObject::$memcache->get("columns");
+		$stored = BasicObject::$memcache->get(BasicObject::$memcache_prefix . "columns");
 		if($stored) BasicObject::$columns = unserialize($stored);
 	}
 
-	public static function clear_structure_cache() {
+	public static function clear_structure_cache($prefix = "basicobject_") {
 		if(is_null(BasicObject::$memcache)) {
 			return false;
 		}
-		BasicObject::$memcache->delete("column_ids");
-		BasicObject::$memcache->delete("connection_table");
-		BasicObject::$memcache->delete("tables");
-		BasicObject::$memcache->delete("columns");
+		$memcache = BasicObject::$memcache;
+		$memcache->delete($prefix . "column_ids");
+		$memcache->delete($prefix . "connection_table");
+		$memcache->delete($prefix . "tables");
+		$memcache->delete($prefix . "columns");
 		BasicObject::$column_ids = array();
 		BasicObject::$connection_table = array();
 		BasicObject::$tables = null;
@@ -175,25 +178,25 @@ abstract class BasicObject {
 
 	private static function store_column_ids() {
 		if(BasicObject::$memcache) {
-			BasicObject::$memcache->set("column_ids", serialize(BasicObject::$column_ids), 0, 0); /* no expire */
+			BasicObject::$memcache->set(BasicObject::$memcache_prefix . "column_ids", serialize(BasicObject::$column_ids), 0, 0); /* no expire */
 		}
 	}
 
 	private static function store_connection_table() {
 		if(BasicObject::$memcache) {
-			BasicObject::$memcache->set("connection_table", serialize(BasicObject::$connection_table), 0, 0); /* No expire */
+			BasicObject::$memcache->set(BasicObject::$memcache_prefix . "connection_table", serialize(BasicObject::$connection_table), 0, 0); /* No expire */
 		}
 	}
 
 	private static function store_tables() {
 		if(BasicObject::$memcache) {
-			BasicObject::$memcache->set("tables", serialize(BasicObject::$tables), 0, 0); /* No expire */
+			BasicObject::$memcache->set(BasicObject::$memcache_prefix . "tables", serialize(BasicObject::$tables), 0, 0); /* No expire */
 		}
 	}
 
 	private static function store_columns() {
 		if(BasicObject::$memcache) {
-			BasicObject::$memcache->set("columns", serialize(BasicObject::$columns), 0, 0); /* No expire */
+			BasicObject::$memcache->set(BasicObject::$memcache_prefix . "columns", serialize(BasicObject::$columns), 0, 0); /* No expire */
 		}
 	}
 
@@ -445,12 +448,24 @@ abstract class BasicObject {
 	}
 
 	/**
+	 * Called before committing.
+	 */
+	protected function pre_commit_hook(){}
+
+	/**
+	 * Called after committing, if and only if committing actually inserted/updated the object.
+	 */
+	protected function post_commit_hook(){}
+
+	/**
 	 * Commits all fields to database. If this object was created with "new Object()" a new row
 	 * will be created in the table and this object will atempt to update itself with automagic values.
 	 * If the inhereting class wants to do special things on creation, it is best to overload this method
 	 * and do them again.
 	 */
 	public function commit() {
+		$this->pre_commit_hook();
+
 		global $db;
 		$id_name = $this->id_name();
 		if(isset($this->_exists) && $this->_exists){
@@ -525,6 +540,7 @@ abstract class BasicObject {
 		}
 
 		BasicObject::invalidate_cache();
+		$this->post_commit_hook();
 	}
 
 	/**
@@ -1015,6 +1031,18 @@ abstract class BasicObject {
 					}
 					$wheres = substr($wheres, 0, -2);
 					$wheres .= ") $glue\n";
+				} elseif($where['operator'] == 'not_in') {
+					$wheres .= "	{$where['column']} NOT IN (";
+					if(!is_array($value)){
+						throw new Exception("Operator 'not_in' should be coupled with an array of values.");
+					}
+					foreach($value as $v){
+						$types .= 's';
+						$wheres .= '?, ';
+						$user_params[] = $v;
+					}
+					$wheres = substr($wheres, 0, -2);
+					$wheres .= ") $glue\n";
 				} elseif($where['operator'] == 'null') {
 					$wheres .= "	".$where["column"]." IS NULL $glue\n";
 				} elseif($where['operator'] == 'not_null') {
@@ -1045,11 +1073,13 @@ abstract class BasicObject {
 	 * @param $options An array with options
 	 *						empty_to_null: Set to true to replace all instances of "" with null. (default true)
 	 *						commit: Set to false to not perform commit() (default false)
+	 *            permit: Array with keys to permit to update.
 	 */
 	public static function update_attributes($array, $options=array()) {
 		$defaults = array(
 			'empty_to_null' => true,
 			'commit' => false,
+			'permit' => false,
 		);
 		$options = array_merge($defaults, $options);
 		if(isset($options["empty_to_null"]) && $options["empty_to_null"] == true) {
@@ -1057,6 +1087,12 @@ abstract class BasicObject {
 				if($v == "")
 					$array[$k] = null;
 			}
+		}
+
+		/* remove unpermitted keys */
+		if ( is_array($options['permit']) ){
+			$permit = array_merge($options['permit'], array('id', static::id_name()));
+			$array = array_intersect_key($array, array_combine($permit, $permit));
 		}
 
 		$obj = new static($array);
@@ -1128,6 +1164,7 @@ abstract class BasicObject {
 			case "regexp":
 			case "like":
 			case "in":
+			case "not_in":
 			case "null":
 			case "not_null":
 				return $expr;
@@ -1237,6 +1274,13 @@ abstract class BasicObject {
 		} else {
 			throw new Exception("Expected at most one match for query ".print_r($params, true)." but got ".count($sel));
 		}
+	}
+
+	/**
+	 * Shorthand for static::selection()
+	 */
+	public static function all(){
+		return static::selection();
 	}
 
 	private static function connection($table1, $table2) {

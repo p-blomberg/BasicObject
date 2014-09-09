@@ -84,4 +84,68 @@ class CacheTest extends DatabaseTestCase {
 
 		$this->assertEquals($num_queries, CountingDB::$queries);
 	}
+
+	public function testStructureCacheFill() {
+		$sc_vars = $this->getStructureCacheVariables();
+
+		Model1::from_id(1);
+		Model1::selection(array('model2.int1' => 1));
+		$vals = array();
+		foreach($sc_vars as $v => $prop) {
+			$vals[$v] = $prop->getValue();
+			$this->assertNotEmpty($vals[$v]);
+		}
+	}
+
+	public function testStructureCacheRestore() {
+		$sc_vars = $this->getStructureCacheVariables();
+
+		Model1::from_id(1);
+		Model1::selection(array('model2.int1' => 1));
+		$vals = array();
+		foreach($sc_vars as $v => $prop) {
+			$vals[$v] = $prop->getValue();
+			$prop->setValue(array());
+		}
+
+		BasicObject::enable_structure_cache(MC::get_instance(), "bo_unit_test_");
+		foreach($sc_vars as $v => $prop) {
+			$this->assertEquals($vals[$v], $prop->getValue());
+		}
+	}
+
+	public function testClearStructureCache() {
+		$sc_vars = $this->getStructureCacheVariables();
+		Model1::from_id(1);
+		Model1::selection(array('model2.int1' => 1));
+		BasicObject::clear_structure_cache(MC::get_instance(), "bo_unit_test_");
+
+		BasicObject::enable_structure_cache(MC::get_instance(), "bo_unit_test_");
+		foreach($sc_vars as $v => $prop) {
+			$this->assertEmpty($prop->getValue());
+		}
+	}
+
+	public function testClearStructureCachePrefixSeparation() {
+		$sc_vars = $this->getStructureCacheVariables();
+		Model1::from_id(1);
+		Model1::selection(array('model2.int1' => 1));
+
+		BasicObject::clear_structure_cache(MC::get_instance(), "bo_unit_test2_");
+
+		BasicObject::enable_structure_cache(MC::get_instance(), "bo_unit_test_");
+		foreach($sc_vars as $v => $prop) {
+			$this->assertNotEmpty($prop->getValue());
+		}
+	}
+
+	private function getStructureCacheVariables() {
+		$ret = array();
+		$vars = array('column_ids', 'connection_table', 'tables', 'columns');
+		foreach($vars as $var) {
+			$ret[$var] = new ReflectionProperty('BasicObject', $var);
+			$ret[$var]->setAccessible(true);
+		}
+		return $ret;
+	}
 }

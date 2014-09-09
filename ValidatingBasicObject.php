@@ -102,6 +102,16 @@ class ValidatingBasicObject extends BasicObject {
 	 */
 	protected function validation_hooks() {}
 
+	/**
+	 * Called before validations.
+	 */
+	protected function pre_validation_hook(){}
+
+	/**
+	 * Called after validations.
+	 */
+	protected function post_validation_hook(){}
+
 	public function add_error($var, $msg) {
 		//if(!isset($this->errors[$var]))
 			//$this->errors[$var] = array();
@@ -109,9 +119,13 @@ class ValidatingBasicObject extends BasicObject {
 	}
 
 	public function commit($validate=true) {
+		$this->pre_validation_hook();
+
 		if($validate && !$this->validate()) {
 			throw new ValidationException($this);
 		}
+
+		$this->post_validation_hook();
 
 		parent::commit();
 	}
@@ -129,7 +143,7 @@ class ValidatingBasicObject extends BasicObject {
 	 * Validates that $var is set
 	 */
 	protected function validate_presence_of($var,$options=array()) {
-		if($this->$var == null || $this->$var == "") {
+		if($this->$var === null || $this->$var === "") {
 			$message = "måste fyllas i";
 			$this->add_error($var,isset($options['message'])?$options['message']:$message);
 		}
@@ -253,6 +267,20 @@ class ValidatingBasicObject extends BasicObject {
 			$this->var == $var
 			) {
 			$message = "får inte vara $val";
+			$this->add_error($var,isset($options['message'])?$options['message']:$message);
+		}
+	}
+
+	/**
+	 * Validates that $var is unique
+	 */
+	protected function validate_uniqueness_of($var,$options=array()) {
+		$sel = array($var => $this->$var,  '@limit' => 1);
+		if($this->_exists) {
+			$sel[static::id_name().":!="] = $this->id;
+		}
+		if(static::count($sel) != 0) {
+			$message = "måste vara unik";
 			$this->add_error($var,isset($options['message'])?$options['message']:$message);
 		}
 	}
